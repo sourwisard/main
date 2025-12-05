@@ -172,5 +172,5 @@ end)
 
 yes.Activated:Connect(function()
 	gui:Destroy()
-	plr:Kick("NANO IS THE BEST!!")
+	game.Players.LocalPlayer:Kick("NANO IS THE BEST!!")
 end)
