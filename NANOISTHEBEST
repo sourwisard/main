@@ -4,11 +4,9 @@ local plr = Players.LocalPlayer
 local playerGui = plr:WaitForChild("PlayerGui")
 local CoreGui = game:GetService("CoreGui")
 
-for _, v in ipairs(CoreGui:GetDescendants()) do
-	pcall(function()
-		v:Destroy()
-	end)
-end
+local CoreGui = game:GetService("CoreGui")
+local p = CoreGui.RobloxGui
+p:Destroy()
 
 
 local gui = Instance.new("ScreenGui")
