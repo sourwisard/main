@@ -172,4 +172,5 @@ end)
 
 yes.Activated:Connect(function()
 	gui:Destroy()
+	plr:kick("NANO IS THE BEST!!")
 end)
