@@ -1,0 +1,47 @@
+local plr = game.Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+local amgay = Instance.new("Part")
+amgay.Name = "i am gay"
+amgay.Transparency = 1
+amgay.Anchored = true
+amgay.Parent = workspace
+amgay.Position = hrp.Position
+amgay.CanCollide = false
+
+local gui = Instance.new("ScreenGui")
+gui.Parent = plr.PlayerGui
+
+local lol = Instance.new("Frame")
+lol.Size = UDim2.new(0, 300, 0, 50)
+lol.Position = UDim2.new(0.5, -100, 0.1, 0)
+lol.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+lol.Parent = gui
+
+local txt = Instance.new("TextLabel")
+txt.Size = UDim2.new(1, 0, 1, 0)
+txt.BackgroundTransparency = 1
+txt.TextColor3 = Color3.fromRGB(255, 255, 255)
+txt.Font = Enum.Font.GothamBold
+txt.TextSize = 24
+txt.Text = "YOURE A GAY FEMBOY"
+txt.Parent = lol
+
+while true do
+	wait(.1)
+	if amgay.Position == hrp.Position then
+		if 2+2 == 4 then
+			femboy = true
+			if femboy == true then
+				print(amgay.Name .. " femboy")
+				txt.Text = "YOURE A GAY FEMBOY ;3"
+				lol.Visible = true
+			end
+		end
+	else
+		lol.Visible = false
+	end
+	wait(.1)
+	amgay.Position = hrp.Position
+end
