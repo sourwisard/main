@@ -525,7 +525,7 @@ local function connect()
         elseif data.type == "message" then
             addMessage(data.sender, data.text, data.timestamp, data.sender == player.Name, false)
         elseif data.type == "system" then
-            addMessage("", data.text, nil, false, true)
+            -- ignored
         end
     end)
 
