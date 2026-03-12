@@ -1,0 +1,543 @@
+-- ╔════════════════════════════════════════════╗
+-- ║        Scarlet Chat - Roblox Client        ║
+-- ║  Put in StarterPlayerScripts as LocalScript ║
+-- ╚════════════════════════════════════════════╝
+
+local HttpService      = game:GetService("HttpService")
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local RunService       = game:GetService("RunService")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local mouse     = player:GetMouse()
+
+-- ── Config ────────────────────────────────────────────────────────
+local SERVER_URL   = "ws://217.160.125.127:15010"
+local MAX_MESSAGES = 100
+local MIN_W, MIN_H = 260, 280
+local MAX_W, MAX_H = 620, 720
+local DEF_W, DEF_H = 480, 560
+
+-- ── State ─────────────────────────────────────────────────────────
+local socket        = nil
+local isOpen        = false
+local isMinimized   = false
+local messageCount  = 0
+local unreadCount   = 0
+local dragging      = false
+local resizing      = false
+local dragOffX      = 0
+local dragOffY      = 0
+local resizeStartX  = 0
+local resizeStartY  = 0
+local resizeStartW  = 0
+local resizeStartH  = 0
+
+-- ── ScreenGui ─────────────────────────────────────────────────────
+local sg = Instance.new("ScreenGui")
+sg.Name = "ScarletChat"
+sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.DisplayOrder = 100
+sg.Parent = playerGui
+
+-- ── Main Frame ────────────────────────────────────────────────────
+local frame = Instance.new("Frame")
+frame.Name = "ChatFrame"
+frame.Size = UDim2.new(0, DEF_W, 0, DEF_H)
+frame.Position = UDim2.new(0, 16, 1, -(DEF_H + 16))
+frame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.ClipsDescendants = true
+frame.ZIndex = 2
+frame.Parent = sg
+-- no corner on frame
+
+local frameStroke = Instance.new("UIStroke", frame)
+frameStroke.Color = Color3.fromRGB(55, 55, 85)
+frameStroke.Thickness = 1.5
+
+-- ── Header ────────────────────────────────────────────────────────
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 46)
+header.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
+header.BorderSizePixel = 0
+header.ZIndex = 3
+header.Parent = frame
+-- no corner on header
+
+-- patch header bottom corners
+
+-- drag pill
+local pill = Instance.new("Frame", header)
+pill.Size = UDim2.new(0, 36, 0, 4)
+pill.Position = UDim2.new(0.5, -18, 0, 7)
+pill.BackgroundColor3 = Color3.fromRGB(70, 70, 110)
+pill.BorderSizePixel = 0
+pill.ZIndex = 4
+Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
+
+-- status dot
+local dot = Instance.new("Frame", header)
+dot.Size = UDim2.new(0, 9, 0, 9)
+dot.Position = UDim2.new(0, 13, 0, 18)
+dot.BackgroundColor3 = Color3.fromRGB(200, 160, 40)
+dot.BorderSizePixel = 0
+dot.ZIndex = 4
+Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+-- title
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(1, -110, 0, 20)
+title.Position = UDim2.new(0, 28, 0, 13)
+title.BackgroundTransparency = 1
+title.Text = "Scarlet Chat"
+title.TextColor3 = Color3.fromRGB(210, 210, 235)
+title.TextSize = 14
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 4
+
+-- status text
+local statusLabel = Instance.new("TextLabel", header)
+statusLabel.Size = UDim2.new(0, 120, 0, 12)
+statusLabel.Position = UDim2.new(0, 28, 0, 32)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Connecting..."
+statusLabel.TextColor3 = Color3.fromRGB(200, 160, 40)
+statusLabel.TextSize = 10
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.ZIndex = 4
+
+-- header buttons
+local function makeBtn(parent, txt, bg, x)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(0, 28, 0, 28)
+    b.Position = UDim2.new(1, x, 0.5, -14)
+    b.BackgroundColor3 = bg
+    b.BorderSizePixel = 0
+    b.Text = txt
+    b.TextColor3 = Color3.fromRGB(255,255,255)
+    b.TextSize = 13
+    b.Font = Enum.Font.GothamBold
+    b.ZIndex = 5
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
+    return b
+end
+
+local closeBtn    = makeBtn(header, "X", Color3.fromRGB(170, 45, 45), -38)
+local minimizeBtn = makeBtn(header, "-", Color3.fromRGB(45, 45, 65),  -72)
+
+-- ── Scroll frame ──────────────────────────────────────────────────
+local scrollFrame = Instance.new("ScrollingFrame", frame)
+scrollFrame.Size = UDim2.new(1, 0, 1, -96)
+scrollFrame.Position = UDim2.new(0, 0, 0, 46)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 3
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(91, 91, 200)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrollFrame.ZIndex = 2
+
+local ll = Instance.new("UIListLayout", scrollFrame)
+ll.SortOrder = Enum.SortOrder.LayoutOrder
+ll.Padding = UDim.new(0, 5)
+ll:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    task.delay(0.05, function()
+        scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
+    end)
+end)
+
+local sp = Instance.new("UIPadding", scrollFrame)
+sp.PaddingLeft   = UDim.new(0, 10)
+sp.PaddingRight  = UDim.new(0, 10)
+sp.PaddingTop    = UDim.new(0, 8)
+sp.PaddingBottom = UDim.new(0, 8)
+
+-- ── Input area ────────────────────────────────────────────────────
+local inputArea = Instance.new("Frame", frame)
+inputArea.Size = UDim2.new(1, 0, 0, 50)
+inputArea.Position = UDim2.new(0, 0, 1, -50)
+inputArea.BackgroundColor3 = Color3.fromRGB(18, 18, 30)
+inputArea.BorderSizePixel = 0
+inputArea.ZIndex = 3
+-- no corner on inputArea
+
+
+local inputBox = Instance.new("TextBox", inputArea)
+inputBox.Size = UDim2.new(1, -66, 1, -16)
+inputBox.Position = UDim2.new(0, 10, 0, 8)
+inputBox.BackgroundColor3 = Color3.fromRGB(22, 22, 36)
+inputBox.BorderSizePixel = 0
+inputBox.PlaceholderText = "Type a message..."
+inputBox.PlaceholderColor3 = Color3.fromRGB(65, 65, 90)
+inputBox.Text = ""
+inputBox.TextColor3 = Color3.fromRGB(220, 220, 245)
+inputBox.TextSize = 13
+inputBox.Font = Enum.Font.Gotham
+inputBox.ClearTextOnFocus = false
+inputBox.ZIndex = 4
+Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 8)
+
+local sendBtn = Instance.new("TextButton", inputArea)
+sendBtn.Size = UDim2.new(0, 46, 1, -16)
+sendBtn.Position = UDim2.new(1, -54, 0, 8)
+sendBtn.BackgroundColor3 = Color3.fromRGB(91, 91, 214)
+sendBtn.BorderSizePixel = 0
+sendBtn.Text = "Send"
+sendBtn.TextColor3 = Color3.fromRGB(255,255,255)
+sendBtn.TextSize = 16
+sendBtn.Font = Enum.Font.GothamBold
+sendBtn.ZIndex = 4
+Instance.new("UICorner", sendBtn).CornerRadius = UDim.new(0, 8)
+
+-- ── Resize grip ───────────────────────────────────────────────────
+local grip = Instance.new("TextButton", frame)
+grip.Size = UDim2.new(0, 22, 0, 22)
+grip.Position = UDim2.new(1, -22, 1, -22)
+grip.BackgroundTransparency = 1
+grip.Text = "◢"
+grip.TextColor3 = Color3.fromRGB(70, 70, 110)
+grip.TextSize = 14
+grip.Font = Enum.Font.GothamBold
+grip.ZIndex = 6
+
+-- ── Toggle button ─────────────────────────────────────────────────
+local toggleBtn = Instance.new("TextButton", sg)
+toggleBtn.Size = UDim2.new(0, 60, 0, 60)
+toggleBtn.Position = UDim2.new(0.5, -30, 0, 10)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(91, 91, 214)
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Text = "Chat"
+toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+toggleBtn.TextSize = 13
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.ZIndex = 2
+Instance.new("UIStroke", toggleBtn).Color = Color3.fromRGB(110, 110, 240)
+
+-- Make toggle button draggable
+local tbDragging = false
+local tbDragOffX, tbDragOffY = 0, 0
+toggleBtn.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        tbDragging = true
+        tbDragOffX = mouse.X - toggleBtn.AbsolutePosition.X
+        tbDragOffY = mouse.Y - toggleBtn.AbsolutePosition.Y
+    end
+end)
+toggleBtn.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        tbDragging = false
+    end
+end)
+-- merged into main RenderStepped below
+
+
+local badge = Instance.new("TextLabel", toggleBtn)
+badge.Size = UDim2.new(0, 20, 0, 20)
+badge.Position = UDim2.new(1, -8, 0, -8)
+badge.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+badge.BorderSizePixel = 0
+badge.Text = "0"
+badge.TextColor3 = Color3.fromRGB(255,255,255)
+badge.TextSize = 10
+badge.Font = Enum.Font.GothamBold
+badge.Visible = false
+badge.ZIndex = 3
+Instance.new("UICorner", badge).CornerRadius = UDim.new(1, 0)
+
+-- ── Tween helper ──────────────────────────────────────────────────
+local ti = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local function tw(obj, props) TweenService:Create(obj, ti, props):Play() end
+
+local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+
+-- ── Status ────────────────────────────────────────────────────────
+local function setStatus(connected)
+    if connected then
+        dot.BackgroundColor3 = Color3.fromRGB(74, 222, 128)
+        statusLabel.Text = "Connected"
+        statusLabel.TextColor3 = Color3.fromRGB(74, 222, 128)
+    else
+        dot.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+        statusLabel.Text = "Disconnected"
+        statusLabel.TextColor3 = Color3.fromRGB(220, 60, 60)
+    end
+end
+
+-- ── Scroll to bottom ──────────────────────────────────────────────
+local function scrollToBottom()
+    task.delay(0.08, function()
+        scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.AbsoluteCanvasSize.Y)
+    end)
+end
+
+-- ── Add message ───────────────────────────────────────────────────
+local function addMessage(sender, text, timestamp, isSelf, isSystem)
+    messageCount += 1
+    if messageCount > MAX_MESSAGES then
+        for _, c in ipairs(scrollFrame:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then
+                c:Destroy(); break
+            end
+        end
+    end
+
+    if isSystem then
+        local lbl = Instance.new("TextLabel", scrollFrame)
+        lbl.Size = UDim2.new(1, 0, 0, 18)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = "─  " .. text .. "  ─"
+        lbl.TextColor3 = Color3.fromRGB(80, 80, 115)
+        lbl.TextSize = 10
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+        lbl.LayoutOrder = messageCount
+        lbl.ZIndex = 2
+    else
+        local timeStr = ""
+        if timestamp then
+            local h, m = timestamp:match("T(%d+):(%d+)")
+            if h and m then timeStr = h .. ":" .. m end
+        end
+
+        local bubble = Instance.new("Frame", scrollFrame)
+        bubble.Size = UDim2.new(0.78, 0, 0, 0)
+        bubble.AutomaticSize = Enum.AutomaticSize.Y
+        bubble.BackgroundColor3 = isSelf
+            and Color3.fromRGB(75, 75, 195)
+            or  Color3.fromRGB(25, 25, 40)
+        bubble.BorderSizePixel = 0
+        bubble.LayoutOrder = messageCount
+        bubble.ZIndex = 2
+        if isSelf then bubble.Position = UDim2.new(0.22, 0, 0, 0) end
+        Instance.new("UICorner", bubble).CornerRadius = UDim.new(0, 10)
+
+        local bs = Instance.new("UIStroke", bubble)
+        bs.Color = isSelf and Color3.fromRGB(105,105,235) or Color3.fromRGB(45,45,68)
+        bs.Thickness = 1
+
+        local pad = Instance.new("UIPadding", bubble)
+        pad.PaddingLeft   = UDim.new(0, 9)
+        pad.PaddingRight  = UDim.new(0, 9)
+        pad.PaddingTop    = UDim.new(0, 6)
+        pad.PaddingBottom = UDim.new(0, 6)
+
+        local bll = Instance.new("UIListLayout", bubble)
+        bll.SortOrder = Enum.SortOrder.LayoutOrder
+        bll.Padding = UDim.new(0, 2)
+
+        local meta = Instance.new("TextLabel", bubble)
+        meta.Size = UDim2.new(1, 0, 0, 13)
+        meta.BackgroundTransparency = 1
+        meta.Text = sender .. (timeStr ~= "" and ("  " .. timeStr) or "")
+        meta.TextColor3 = isSelf
+            and Color3.fromRGB(165, 163, 255)
+            or  Color3.fromRGB(115, 115, 155)
+        meta.TextSize = 10
+        meta.Font = Enum.Font.Gotham
+        meta.TextXAlignment = Enum.TextXAlignment.Left
+        meta.LayoutOrder = 1
+        meta.ZIndex = 3
+
+        local msg = Instance.new("TextLabel", bubble)
+        msg.Size = UDim2.new(1, 0, 0, 0)
+        msg.AutomaticSize = Enum.AutomaticSize.Y
+        msg.BackgroundTransparency = 1
+        msg.Text = text
+        msg.TextColor3 = Color3.fromRGB(225, 225, 248)
+        msg.TextSize = 13
+        msg.Font = Enum.Font.Gotham
+        msg.TextWrapped = true
+        msg.TextXAlignment = Enum.TextXAlignment.Left
+        msg.LayoutOrder = 2
+        msg.ZIndex = 3
+    end
+
+    scrollToBottom()
+
+    if not isOpen and not isSystem then
+        unreadCount += 1
+        badge.Text = tostring(unreadCount)
+        badge.Visible = true
+        tw(toggleBtn, {BackgroundColor3 = Color3.fromRGB(130, 55, 210)})
+        task.delay(0.35, function()
+            tw(toggleBtn, {BackgroundColor3 = Color3.fromRGB(91, 91, 214)})
+        end)
+    end
+end
+
+-- ── Minimize ──────────────────────────────────────────────────────
+local savedHeight = DEF_H
+local function setMinimized(v)
+    isMinimized = v
+    if v then
+        savedHeight = frame.AbsoluteSize.Y
+        tw(frame, {Size = UDim2.new(0, frame.AbsoluteSize.X, 0, 46)})
+        scrollFrame.Visible  = false
+        inputArea.Visible    = false
+        grip.Visible         = false
+        minimizeBtn.Text     = "▲"
+    else
+        tw(frame, {Size = UDim2.new(0, frame.AbsoluteSize.X, 0, savedHeight)})
+        scrollFrame.Visible  = true
+        inputArea.Visible    = true
+        grip.Visible         = true
+        minimizeBtn.Text     = "—"
+        scrollToBottom()
+    end
+end
+
+minimizeBtn.MouseButton1Click:Connect(function() setMinimized(not isMinimized) end)
+
+-- ── Open / close ──────────────────────────────────────────────────
+local function openChat()
+    isOpen = true
+    frame.Visible = true
+    unreadCount = 0
+    badge.Visible = false
+    toggleBtn.Text = "Close"
+    tw(toggleBtn, {BackgroundColor3 = Color3.fromRGB(155, 45, 45)})
+    task.delay(0.1, scrollToBottom)
+    task.defer(function() inputBox:CaptureFocus() end)
+end
+
+local function closeChat()
+    isOpen = false
+    frame.Visible = false
+    toggleBtn.Text = "Chat"
+    tw(toggleBtn, {BackgroundColor3 = Color3.fromRGB(91, 91, 214)})
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    if isOpen then closeChat() else openChat() end
+end)
+closeBtn.MouseButton1Click:Connect(closeChat)
+
+-- ── Drag ──────────────────────────────────────────────────────────
+header.InputBegan:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragOffX = mouse.X - frame.AbsolutePosition.X
+        dragOffY = mouse.Y - frame.AbsolutePosition.Y
+    end
+end)
+header.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- ── Resize ────────────────────────────────────────────────────────
+grip.MouseButton1Down:Connect(function()
+    resizing = true
+    resizeStartX = mouse.X
+    resizeStartY = mouse.Y
+    resizeStartW = frame.AbsoluteSize.X
+    resizeStartH = frame.AbsoluteSize.Y
+end)
+
+-- ── RenderStepped: drag + resize ──────────────────────────────────
+RunService.RenderStepped:Connect(function()
+    if tbDragging then
+        local vp = workspace.CurrentCamera.ViewportSize
+        local nx = math.max(0, math.min(mouse.X - tbDragOffX, vp.X - toggleBtn.AbsoluteSize.X))
+        local ny = math.max(0, math.min(mouse.Y - tbDragOffY, vp.Y - toggleBtn.AbsoluteSize.Y))
+        toggleBtn.Position = UDim2.new(0, nx, 0, ny)
+    end
+    if dragging then
+        local vp = workspace.CurrentCamera.ViewportSize
+        local nx = clamp(mouse.X - dragOffX, 0, vp.X - frame.AbsoluteSize.X)
+        local ny = clamp(mouse.Y - dragOffY, 0, vp.Y - frame.AbsoluteSize.Y)
+        frame.Position = UDim2.new(0, nx, 0, ny)
+    end
+    if resizing and not isMinimized then
+        local nw = clamp(resizeStartW + (mouse.X - resizeStartX), MIN_W, MAX_W)
+        local nh = clamp(resizeStartH + (mouse.Y - resizeStartY), MIN_H, MAX_H)
+        frame.Size = UDim2.new(0, nw, 0, nh)
+        savedHeight = nh
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+        resizing = false
+    end
+end)
+
+-- ── Hover effects ─────────────────────────────────────────────────
+local function addHover(b, n, h)
+    b.MouseEnter:Connect(function() tw(b, {BackgroundColor3 = h}) end)
+    b.MouseLeave:Connect(function() tw(b, {BackgroundColor3 = n}) end)
+end
+addHover(sendBtn,     Color3.fromRGB(91,91,214),   Color3.fromRGB(110,110,245))
+addHover(minimizeBtn, Color3.fromRGB(45,45,65),    Color3.fromRGB(65,65,95))
+addHover(closeBtn,    Color3.fromRGB(170,45,45),   Color3.fromRGB(215,55,55))
+
+-- ── Send message ──────────────────────────────────────────────────
+local function sendMessage()
+    local text = inputBox.Text
+    if text == "" or text:match("^%s*$") or not socket then return end
+    local ok, payload = pcall(HttpService.JSONEncode, HttpService, {
+        sender = player.Name, text = text
+    })
+    if ok then
+        socket:Send(payload)
+        inputBox.Text = ""
+    end
+end
+
+sendBtn.MouseButton1Click:Connect(sendMessage)
+inputBox.FocusLost:Connect(function(enter) if enter then sendMessage() end end)
+
+-- ── WebSocket ─────────────────────────────────────────────────────
+local function connect()
+    statusLabel.Text = "Connecting..."
+    statusLabel.TextColor3 = Color3.fromRGB(200, 160, 40)
+    dot.BackgroundColor3 = Color3.fromRGB(200, 160, 40)
+
+    local ok, ws = pcall(WebSocket.connect, SERVER_URL)
+    if not ok then
+        addMessage("", "Could not reach server — retrying in 5s", nil, false, true)
+        task.delay(5, connect)
+        return
+    end
+
+    socket = ws
+    setStatus(true)
+    addMessage("", "Connected to Scarlet Chat", nil, false, true)
+
+    ws.OnMessage:Connect(function(raw)
+        local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if not ok2 or not data then return end
+
+        if data.type == "history" then
+            for _, m in ipairs(data.messages) do
+                if m.type == "message" then
+                    addMessage(m.sender, m.text, m.timestamp, m.sender == player.Name, false)
+                end
+            end
+            scrollToBottom()
+        elseif data.type == "message" then
+            addMessage(data.sender, data.text, data.timestamp, data.sender == player.Name, false)
+        elseif data.type == "system" then
+            addMessage("", data.text, nil, false, true)
+        end
+    end)
+
+    ws.OnClose:Connect(function()
+        socket = nil
+        setStatus(false)
+        addMessage("", "Disconnected — retrying in 5s", nil, false, true)
+        task.delay(5, connect)
+    end)
+end
+
+-- ── Go ────────────────────────────────────────────────────────────
+connect()
