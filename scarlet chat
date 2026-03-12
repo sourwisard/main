@@ -504,14 +504,12 @@ local function connect()
 
     local ok, ws = pcall(WebSocket.connect, SERVER_URL)
     if not ok then
-        addMessage("", "Could not reach server — retrying in 5s", nil, false, true)
         task.delay(5, connect)
         return
     end
 
     socket = ws
     setStatus(true)
-    addMessage("", "Connected to Scarlet Chat", nil, false, true)
 
     ws.OnMessage:Connect(function(raw)
         local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
@@ -534,7 +532,6 @@ local function connect()
     ws.OnClose:Connect(function()
         socket = nil
         setStatus(false)
-        addMessage("", "Disconnected — retrying in 5s", nil, false, true)
         task.delay(5, connect)
     end)
 end
